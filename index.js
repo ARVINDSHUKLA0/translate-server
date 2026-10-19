@@ -148,6 +148,36 @@ app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
 // CORS — local development only
+// const allowedOrigins = [
+//     'http://localhost:3000',
+//     'http://localhost:3001',
+//     'http://localhost:3002',
+//     'http://localhost:5173',
+//     'http://localhost:5174',
+//     'http://dr-mehta-1keq.localhost:3000',
+//     'http://dr-ranjan.localhost:3000',
+// ]
+
+
+
+// app.use(
+//     cors({
+//         origin(origin, callback) {
+//             if (!origin || allowedOrigins.includes(origin)) {
+//                 return callback(null, true)
+//             }
+
+//             return callback(new Error(`CORS blocked this origin: ${origin}`))
+//         },
+//         credentials: true,
+//         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+//         allowedHeaders: ['Content-Type', 'Authorization'],
+//     })
+// )
+
+
+/* CORS — local development and deployed websites */
+
 const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:3001',
@@ -156,6 +186,12 @@ const allowedOrigins = [
     'http://localhost:5174',
     'http://dr-mehta-1keq.localhost:3000',
     'http://dr-ranjan.localhost:3000',
+
+    // Production Admin
+    'https://translate-admin.vercel.app',
+
+    // Production Client — confirm this is your actual deployed URL
+    'https://translate-client-side.vercel.app',
 ]
 
 app.use(
@@ -165,6 +201,7 @@ app.use(
                 return callback(null, true)
             }
 
+            console.error(`[CORS] Blocked origin: ${origin}`)
             return callback(new Error(`CORS blocked this origin: ${origin}`))
         },
         credentials: true,
@@ -172,6 +209,7 @@ app.use(
         allowedHeaders: ['Content-Type', 'Authorization'],
     })
 )
+
 
 // No-cache headers
 app.use((req, res, next) => {
