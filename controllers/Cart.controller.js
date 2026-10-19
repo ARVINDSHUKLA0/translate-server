@@ -1,4 +1,3 @@
-
 // import mongoose from "mongoose";
 
 // import Cart from "../models/Cart.model.js";
@@ -11,13 +10,17 @@
 
 // const isValidId = (id) => mongoose.isValidObjectId(id);
 
+// // Round money to 2 decimals to avoid floating point errors.
+// const round2 = (value) =>
+//     Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+
 // const getClientId = (req) => {
 //     return req.client?._id || req.client?.id;
 // };
 
 // // Calculate service price and fixed-dollar discount.
 // const getServicePricing = (service) => {
-//     const originalPrice = Number(service.startingPrice ?? 0);
+//     const originalPrice = round2(service.startingPrice ?? 0);
 
 //     if (!Number.isFinite(originalPrice) || originalPrice < 0) {
 //         throw new Error("Invalid service starting price.");
@@ -38,10 +41,10 @@
 
 //     // Do not allow the discount to make the price negative.
 //     const discountAmount = discountEnabled
-//         ? Math.min(configuredDiscount, originalPrice)
+//         ? round2(Math.min(configuredDiscount, originalPrice))
 //         : 0;
 
-//     const discountedPrice = originalPrice - discountAmount;
+//     const discountedPrice = round2(originalPrice - discountAmount);
 
 //     return {
 //         originalPrice,
@@ -62,7 +65,7 @@
 //             continue;
 //         }
 
-//         const price = Number(addon.price ?? 0);
+//         const price = round2(addon.price ?? 0);
 
 //         if (!Number.isFinite(price) || price < 0) {
 //             throw new Error(`Invalid add-on price: ${addon._id}`);
@@ -75,7 +78,7 @@
 //             price,
 //         });
 
-//         addonTotal += price;
+//         addonTotal = round2(addonTotal + price);
 //     }
 
 //     return {
@@ -86,6 +89,12 @@
 
 // // Populate and calculate the current cart response.
 // const serializeCart = async (cart) => {
+//     // Remember how many add-ons each item had before populate,
+//     // because populate silently drops deleted add-ons.
+//     const expectedAddonCounts = cart.items.map(
+//         (item) => (item.addons || []).length
+//     );
+
 //     await cart.populate({
 //         path: "items.service",
 //         select: [
@@ -107,7 +116,8 @@
 //     const items = [];
 //     let subtotal = 0;
 
-//     for (const item of cart.items) {
+//     for (let index = 0; index < cart.items.length; index++) {
+//         const item = cart.items[index];
 //         const service = item.service;
 
 //         // Skip deleted services safely.
@@ -115,20 +125,63 @@
 //             continue;
 //         }
 
-//         const pricing = getServicePricing(service);
+//         const issues = [];
 
-//         const addonPricing = getAddonPricing(item.addons || []);
+//         let pricing = {
+//             originalPrice: 0,
+//             discountEnabled: false,
+//             discountAmount: 0,
+//             discountedPrice: 0,
+//             currency: service.startingPriceCurrency || "USD",
+//         };
+
+//         let addonPricing = { details: [], addonTotal: 0 };
+
+//         // One broken service must not break the whole cart.
+//         try {
+//             pricing = getServicePricing(service);
+//             addonPricing = getAddonPricing(item.addons || []);
+//         } catch (error) {
+//             console.error("CART ITEM PRICING ERROR:", error.message);
+//             issues.push("Pricing is unavailable for this item.");
+//         }
+
+//         if (service.status !== "active") {
+//             issues.push("This service is no longer available.");
+//         }
+
+//         if ((item.addons || []).length < expectedAddonCounts[index]) {
+//             issues.push("One or more add-ons were removed.");
+//         }
+
+//         if ((item.addons || []).some((addon) => addon?.isActive === false)) {
+//             issues.push("One or more add-ons are no longer available.");
+//         }
+
+//         // Add-on prices are stored in USD.
+//         if (
+//             (item.addons || []).length > 0 &&
+//             String(pricing.currency).toUpperCase() !== "USD"
+//         ) {
+//             issues.push("Add-ons are only supported for USD services.");
+//         }
+
+//         const unavailable = issues.length > 0;
 
 //         const quantity = Number(item.quantity) || 1;
 
 //         // Discount is applied to the service price only.
 //         // Add-on prices are then added to the discounted price.
-//         const unitPrice =
-//             pricing.discountedPrice + addonPricing.addonTotal;
+//         const unitPrice = round2(
+//             pricing.discountedPrice + addonPricing.addonTotal
+//         );
 
-//         const lineTotal = unitPrice * quantity;
+//         const lineTotal = round2(unitPrice * quantity);
 
-//         subtotal += lineTotal;
+//         // Unavailable items are not counted in the subtotal.
+//         if (!unavailable) {
+//             subtotal = round2(subtotal + lineTotal);
+//         }
 
 //         items.push({
 //             _id: item._id,
@@ -159,11 +212,18 @@
 //             unitPrice,
 //             lineTotal,
 //             currency: pricing.currency,
+
+//             unavailable,
+//             issues,
 //         });
 //     }
 
 //     const currencies = [
-//         ...new Set(items.map((item) => item.currency)),
+//         ...new Set(
+//             items
+//                 .filter((item) => !item.unavailable)
+//                 .map((item) => item.currency)
+//         ),
 //     ];
 
 //     return {
@@ -175,7 +235,7 @@
 //             0
 //         ),
 
-//         subtotal,
+//         subtotal: round2(subtotal),
 
 //         currency: currencies.length === 1
 //             ? currencies[0]
@@ -184,6 +244,7 @@
 //                 : null,
 
 //         mixedCurrencies: currencies.length > 1,
+//         hasUnavailableItems: items.some((item) => item.unavailable),
 //         updatedAt: cart.updatedAt,
 //     };
 // };
@@ -305,6 +366,18 @@
 //         getServicePricing(service);
 
 //         if (uniqueAddonIds.length > 0) {
+//             // Add-on prices are stored in USD.
+//             const serviceCurrency = String(
+//                 service.startingPriceCurrency || "USD"
+//             ).toUpperCase();
+
+//             if (serviceCurrency !== "USD") {
+//                 return res.status(400).json({
+//                     success: false,
+//                     message: "Add-ons are only available for USD services.",
+//                 });
+//             }
+
 //             const addonDocuments = await ServiceAddon.find({
 //                 _id: { $in: uniqueAddonIds },
 //             });
@@ -587,41 +660,6 @@
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import mongoose from "mongoose";
 
 import Cart from "../models/Cart.model.js";
@@ -719,23 +757,25 @@ const serializeCart = async (cart) => {
         (item) => (item.addons || []).length
     );
 
-    await cart.populate({
-        path: "items.service",
-        select: [
-            "title",
-            "slug",
-            "thumbnail",
-            "startingPrice",
-            "startingPriceCurrency",
-            "discount",
-            "status",
-        ].join(" "),
-    });
-
-    await cart.populate({
-        path: "items.addons",
-        select: "key name price isActive",
-    });
+    // Both populates run in parallel in a single call.
+    await cart.populate([
+        {
+            path: "items.service",
+            select: [
+                "title",
+                "slug",
+                "thumbnail",
+                "startingPrice",
+                "startingPriceCurrency",
+                "discount",
+                "status",
+            ].join(" "),
+        },
+        {
+            path: "items.addons",
+            select: "key name price isActive",
+        },
+    ]);
 
     const items = [];
     let subtotal = 0;
@@ -970,7 +1010,14 @@ export const addCartItem = async (req, res) => {
             });
         }
 
-        const service = await Service.findById(serviceId);
+        // Fetch service, add-ons and cart at the same time.
+        const [service, addonDocuments, existingCart] = await Promise.all([
+            Service.findById(serviceId).lean(),
+            uniqueAddonIds.length > 0
+                ? ServiceAddon.find({ _id: { $in: uniqueAddonIds } }).lean()
+                : Promise.resolve([]),
+            Cart.findOne({ client: clientId }),
+        ]);
 
         if (!service) {
             return res.status(404).json({
@@ -1002,10 +1049,6 @@ export const addCartItem = async (req, res) => {
                 });
             }
 
-            const addonDocuments = await ServiceAddon.find({
-                _id: { $in: uniqueAddonIds },
-            });
-
             if (addonDocuments.length !== uniqueAddonIds.length) {
                 return res.status(400).json({
                     success: false,
@@ -1032,7 +1075,7 @@ export const addCartItem = async (req, res) => {
             }
         }
 
-        let cart = await Cart.findOne({ client: clientId });
+        let cart = existingCart;
 
         if (!cart) {
             cart = new Cart({
@@ -1083,10 +1126,18 @@ export const addCartItem = async (req, res) => {
 
         await cart.save();
 
+        // Light response: the cart page / header fetches the full cart
+        // itself (GET /api/cart) after the "cart-updated" event.
         return res.status(200).json({
             success: true,
             message: "Service added to cart successfully.",
-            cart: await serializeCart(cart),
+            cart: {
+                _id: cart._id,
+                itemCount: cart.items.reduce(
+                    (total, item) => total + (Number(item.quantity) || 1),
+                    0
+                ),
+            },
         });
     } catch (error) {
         console.error("ADD CART ITEM ERROR:", error);
@@ -1271,4 +1322,3 @@ export const clearCart = async (req, res) => {
         });
     }
 };
-
