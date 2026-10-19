@@ -1,0 +1,4 @@
+create api
+   -> API : api/user/create
+   -> feild : name, email, phone, password
+   -> error : 500 (server error), 400 (error with a message when any field will missing), 401 (error for not auth)
