@@ -369,6 +369,22 @@ app.use(express.urlencoded({ extended: true }))
 
 /* CORS — local development and deployed websites */
 
+// const allowedOrigins = [
+//     'http://localhost:3000',
+//     'http://localhost:3001',
+//     'http://localhost:3002',
+//     'http://localhost:5173',
+//     'http://localhost:5174',
+//     'http://dr-mehta-1keq.localhost:3000',
+//     'http://dr-ranjan.localhost:3000',
+
+//     // Production Admin
+//     'https://translate-admin.vercel.app',
+
+//     // Production Client — confirm this is your actual deployed URL
+//     'https://translate-client-side.vercel.app',
+// ]
+
 const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:3001',
@@ -383,6 +399,9 @@ const allowedOrigins = [
 
     // Production Client — confirm this is your actual deployed URL
     'https://translate-client-side.vercel.app',
+
+    // Production Translator dashboard — REPLACE with your real translator URL
+    'https://YOUR-TRANSLATOR-APP.vercel.app',
 ]
 
 app.use(
